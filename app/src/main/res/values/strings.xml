@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Scout</string>
+    <string name="tile_name">Scout</string>
+    <string name="widget_name">Scout Assistant</string>
+</resources>
