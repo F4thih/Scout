@@ -2,9 +2,10 @@ package com.pocketcore.assistant.data.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.pocketcore.assistant.data.security.SecurityHelper
 
 /**
- * Stores execution logs for offline audit and command history.
+ * Stores encrypted logs of previous command inputs and feedback messages.
  */
 @Entity(tableName = "command_logs")
 data class CommandLogEntity(
@@ -14,4 +15,24 @@ data class CommandLogEntity(
     val feedbackMessage: String,
     val success: Boolean,
     val timestamp: Long = System.currentTimeMillis()
-)
+) {
+    val displayInput: String
+        get() = SecurityHelper.decrypt(rawInput)
+
+    val displayFeedback: String
+        get() = SecurityHelper.decrypt(feedbackMessage)
+
+    companion object {
+        fun createEncrypted(
+            rawInput: String,
+            feedbackMessage: String,
+            success: Boolean
+        ): CommandLogEntity {
+            return CommandLogEntity(
+                rawInput = SecurityHelper.encrypt(rawInput),
+                feedbackMessage = SecurityHelper.encrypt(feedbackMessage),
+                success = success
+            )
+        }
+    }
+}

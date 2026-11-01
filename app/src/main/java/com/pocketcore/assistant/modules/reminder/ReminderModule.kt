@@ -22,7 +22,7 @@ import java.util.regex.Pattern
 class ReminderModule : AssistantModule {
     override val id: String = "reminder"
     override val displayName: String = "Offline Reminders"
-    override val description: String = "Schedule, query, list, or delete reminders via natural speech or text"
+    override val description: String = "Schedule one-time or recurring reminders (daily, weekly, weekdays), query, list, or delete"
     override val priority: Int = 100
 
     private val timeFormatter = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH)
@@ -55,12 +55,12 @@ class ReminderModule : AssistantModule {
             return handleDeleteReminder(context, trimmed)
         }
 
-        // 2. CHECK SPECIFIC TIME / CHECK DAY / LIST REMINDERS
+        // 2. CHECK SPECIFIC TIME / CHECK DAY / LIST REMINDERS (Informational -> keep UI open!)
         if (isQueryIntent(lower)) {
             return handleQueryReminders(context, trimmed)
         }
 
-        // 3. SCHEDULE NEW REMINDER (Default creation path)
+        // 3. SCHEDULE NEW REMINDER (Default creation path -> dismiss UI so user can resume work)
         return handleCreateReminder(context, trimmed)
     }
 
@@ -82,7 +82,7 @@ class ReminderModule : AssistantModule {
         val parsed = ReminderParser.parse(input)
             ?: return CommandResult(
                 success = false,
-                feedbackMessage = "Couldn't understand the reminder format. Try: 'Remind me to [task] at [time]' or 'in [X] minutes'.",
+                feedbackMessage = "Couldn't understand the reminder format. Try: 'Remind me to [task] at [time]' or 'every day at 8am'.",
                 shouldDismissUi = false,
                 actionType = CommandActionType.ERROR
             )
@@ -101,12 +101,13 @@ class ReminderModule : AssistantModule {
             )
         }
 
-        // Save into local Room database
+        // Save into local Room database with AES-256 encryption
         val db = PocketCoreDatabase.getInstance(context)
         val reminderId = db.reminderDao().insertReminder(
-            ReminderEntity(
+            ReminderEntity.createEncrypted(
                 taskDescription = parsed.task,
-                triggerTimeMillis = triggerEpochMillis
+                triggerTimeMillis = triggerEpochMillis,
+                repeatInterval = parsed.repeatInterval
             )
         )
 
@@ -149,10 +150,18 @@ class ReminderModule : AssistantModule {
             }
 
             val formattedTime = parsed.triggerDateTime.format(dateTimeFormatter)
+            val repeatSuffix = when (parsed.repeatInterval.uppercase()) {
+                "DAILY" -> " (repeats daily)"
+                "WEEKDAYS" -> " (repeats weekdays)"
+                "WEEKLY" -> " (repeats weekly)"
+                "MONTHLY" -> " (repeats monthly)"
+                else -> ""
+            }
+
             return CommandResult(
                 success = true,
-                feedbackMessage = "Reminder scheduled: \"${parsed.task}\" for $formattedTime",
-                shouldDismissUi = true,
+                feedbackMessage = "Reminder scheduled: \"${parsed.task}\" for $formattedTime$repeatSuffix",
+                shouldDismissUi = true, // Scheduled action finished -> close overlay
                 actionType = CommandActionType.REMINDER_SCHEDULED
             )
         } catch (e: SecurityException) {
@@ -178,7 +187,7 @@ class ReminderModule : AssistantModule {
         val now = LocalDateTime.now()
         val zone = ZoneId.systemDefault()
 
-        // Case A: Query for a specific time: e.g. "is there any reminder at 9pm?" or "check reminder at 5:00"
+        // Case A: Query for a specific time: e.g. "is there any reminder at 9pm?"
         val timeRegex = Pattern.compile("(?:at\\s+)(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\b", Pattern.CASE_INSENSITIVE)
         val timeMatcher = timeRegex.matcher(input)
         if (timeMatcher.find()) {
@@ -191,11 +200,11 @@ class ReminderModule : AssistantModule {
 
                 val matches = db.reminderDao().getRemindersBetween(windowStart, windowEnd)
                 return if (matches.isNotEmpty()) {
-                    val desc = matches.joinToString(", ") { "\"${it.taskDescription}\" at ${formatEpoch(it.triggerTimeMillis)}" }
+                    val desc = matches.joinToString(", ") { "\"${it.displayDescription}\" at ${formatEpoch(it.triggerTimeMillis)}" }
                     CommandResult(
                         success = true,
                         feedbackMessage = "Yes, you have: $desc",
-                        shouldDismissUi = false,
+                        shouldDismissUi = false, // Informational query -> keep UI open
                         actionType = CommandActionType.INFORMATIONAL
                     )
                 } else {
@@ -217,7 +226,8 @@ class ReminderModule : AssistantModule {
             val remindersToday = db.reminderDao().getRemindersBetween(startOfDay, endOfDay)
             return if (remindersToday.isNotEmpty()) {
                 val formatted = remindersToday.mapIndexed { idx, it ->
-                    "${idx + 1}. \"${it.taskDescription}\" at ${formatEpoch(it.triggerTimeMillis)}"
+                    val rep = if (it.repeatInterval != "NONE") " [${it.repeatInterval.lowercase()}]" else ""
+                    "${idx + 1}. \"${it.displayDescription}\" at ${formatEpoch(it.triggerTimeMillis)}$rep"
                 }.joinToString("\n")
                 CommandResult(
                     success = true,
@@ -244,7 +254,8 @@ class ReminderModule : AssistantModule {
             val remindersTmrw = db.reminderDao().getRemindersBetween(startOfDay, endOfDay)
             return if (remindersTmrw.isNotEmpty()) {
                 val formatted = remindersTmrw.mapIndexed { idx, it ->
-                    "${idx + 1}. \"${it.taskDescription}\" at ${formatEpoch(it.triggerTimeMillis)}"
+                    val rep = if (it.repeatInterval != "NONE") " [${it.repeatInterval.lowercase()}]" else ""
+                    "${idx + 1}. \"${it.displayDescription}\" at ${formatEpoch(it.triggerTimeMillis)}$rep"
                 }.joinToString("\n")
                 CommandResult(
                     success = true,
@@ -276,7 +287,8 @@ class ReminderModule : AssistantModule {
         }
 
         val listStr = allReminders.take(5).mapIndexed { idx, it ->
-            "${idx + 1}. \"${it.taskDescription}\" on ${formatEpochFull(it.triggerTimeMillis)}"
+            val rep = if (it.repeatInterval != "NONE") " [${it.repeatInterval.lowercase()}]" else ""
+            "${idx + 1}. \"${it.displayDescription}\" on ${formatEpochFull(it.triggerTimeMillis)}$rep"
         }.joinToString("\n")
 
         val countInfo = if (allReminders.size > 5) "\n(and ${allReminders.size - 5} more)" else ""
@@ -290,7 +302,6 @@ class ReminderModule : AssistantModule {
     }
 
     private suspend fun handleDeleteReminder(context: Context, input: String): CommandResult {
-        // e.g. "delete reminder buy groceries", "remove reminder Mom", or "delete reminder 1"
         val query = input.replaceFirst(Regex("^(?:delete|remove|cancel)\\s+reminder\\s*", RegexOption.IGNORE_CASE), "").trim()
         val db = PocketCoreDatabase.getInstance(context)
         val all = db.reminderDao().getAllRemindersList()
@@ -304,15 +315,12 @@ class ReminderModule : AssistantModule {
             )
         }
 
-        // Match by index number (e.g. "delete reminder 1")
         val index = query.toIntOrNull()
         val targetReminder = if (index != null && index in 1..all.size) {
             all[index - 1]
         } else if (query.isNotBlank()) {
-            // Match by task description substring
-            all.firstOrNull { it.taskDescription.contains(query, ignoreCase = true) }
+            all.firstOrNull { it.displayDescription.contains(query, ignoreCase = true) }
         } else {
-            // Default to the next upcoming reminder
             all.firstOrNull()
         }
 
@@ -325,7 +333,6 @@ class ReminderModule : AssistantModule {
             )
         }
 
-        // Cancel AlarmManager intent
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = AlarmReceiver.ACTION_TRIGGER_REMINDER
@@ -338,13 +345,12 @@ class ReminderModule : AssistantModule {
         )
         alarmManager.cancel(pendingIntent)
 
-        // Delete from SQLite database
         db.reminderDao().deleteReminder(targetReminder)
 
         return CommandResult(
             success = true,
-            feedbackMessage = "Removed reminder: \"${targetReminder.taskDescription}\".",
-            shouldDismissUi = true,
+            feedbackMessage = "Removed reminder: \"${targetReminder.displayDescription}\".",
+            shouldDismissUi = false, // Keep UI open so user sees confirmation without app vanishing
             actionType = CommandActionType.INFORMATIONAL
         )
     }

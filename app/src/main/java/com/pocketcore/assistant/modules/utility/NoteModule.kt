@@ -38,13 +38,13 @@ class NoteModule : AssistantModule {
 
         val db = PocketCoreDatabase.getInstance(context)
         db.noteDao().insertNote(
-            NoteEntity(content = noteContent)
+            NoteEntity.createEncrypted(noteContent)
         )
 
         return CommandResult(
             success = true,
-            feedbackMessage = "Note saved locally: \"$noteContent\"",
-            shouldDismissUi = true,
+            feedbackMessage = "Note saved securely: \"$noteContent\"",
+            shouldDismissUi = false, // Keep UI open so user sees note was saved and can continue
             actionType = CommandActionType.NOTE_SAVED
         )
     }

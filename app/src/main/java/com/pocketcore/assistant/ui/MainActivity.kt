@@ -528,7 +528,7 @@ fun RemindersListView(
     var searchQuery by remember { mutableStateOf("") }
     val filteredReminders = remember(reminders, searchQuery) {
         if (searchQuery.isBlank()) reminders
-        else reminders.filter { it.taskDescription.contains(searchQuery, ignoreCase = true) }
+        else reminders.filter { it.displayDescription.contains(searchQuery, ignoreCase = true) }
     }
 
     Column(
@@ -596,7 +596,24 @@ fun RemindersListView(
                             }
                             Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(reminder.taskDescription, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(reminder.displayDescription, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                    if (reminder.repeatInterval != "NONE") {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.secondaryContainer
+                                        ) {
+                                            Text(
+                                                reminder.repeatInterval.lowercase(),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     sdf.format(Date(reminder.triggerTimeMillis)),
@@ -623,7 +640,7 @@ fun NotesListView(
     var searchQuery by remember { mutableStateOf("") }
     val filteredNotes = remember(notes, searchQuery) {
         if (searchQuery.isBlank()) notes
-        else notes.filter { it.content.contains(searchQuery, ignoreCase = true) }
+        else notes.filter { it.displayContent.contains(searchQuery, ignoreCase = true) }
     }
 
     Column(
@@ -681,7 +698,7 @@ fun NotesListView(
                             verticalAlignment = Alignment.Top
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(note.content, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Normal)
+                                Text(note.displayContent, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Normal)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     sdf.format(Date(note.timestamp)),

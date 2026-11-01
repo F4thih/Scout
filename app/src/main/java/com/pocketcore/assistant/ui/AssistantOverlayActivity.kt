@@ -46,10 +46,14 @@ import java.util.*
 
 /**
  * AssistantOverlayActivity:
- * Lightweight transparent bottom-sheet overlay triggered exclusively by
+ * Lightweight transparent bottom-sheet overlay triggered by
  * physical button shortcuts, corner swipe gestures, or the Quick Settings tile.
- * It immediately prompts for offline voice input (or quick typing), executes the command,
- * speaks/displays the response, and auto-dismisses itself.
+ *
+ * Intelligent closing behavior:
+ * - App Launching: Closes quickly so the requested app is immediately brought to front.
+ * - Reminder Created: Closes after a short confirmation pause so the user resumes work.
+ * - Queries / Lists / Notes / Errors: STAYS OPEN so the user can read the results,
+ *   ask follow-up commands, or close manually when they are finished.
  */
 class AssistantOverlayActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
@@ -91,11 +95,11 @@ class AssistantOverlayActivity : ComponentActivity(), TextToSpeech.OnInitListene
             val result = dispatcher.dispatch(this@AssistantOverlayActivity, input)
             onResult(result)
 
-            // Log locally into SQLite Room
+            // Log locally into SQLite Room with encryption
             CoroutineScope(Dispatchers.IO).launch {
                 val db = PocketCoreDatabase.getInstance(this@AssistantOverlayActivity)
                 db.commandLogDao().insertLog(
-                    CommandLogEntity(
+                    CommandLogEntity.createEncrypted(
                         rawInput = input,
                         feedbackMessage = result.feedbackMessage,
                         success = result.success
@@ -108,13 +112,21 @@ class AssistantOverlayActivity : ComponentActivity(), TextToSpeech.OnInitListene
                 tts?.speak(result.feedbackMessage, TextToSpeech.QUEUE_FLUSH, null, "POCKETCORE_TTS")
             }
 
-            // Auto-dismiss the overlay after short delay so the user reads/hears the result
-            val dismissDelay = if (result.success) 2200L else 3200L
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (!isFinishing && !isDestroyed) {
-                    finish()
+            // Intelligent dismissal:
+            // Only auto-dismiss if the specific command result explicitly requested it (e.g. launching an app)
+            // For notes, queries, lists, and information, keep overlay open!
+            if (result.shouldDismissUi) {
+                val dismissDelay = when (result.actionType) {
+                    CommandActionType.APP_LAUNCHED -> 600L // Fast dismiss to show launched app
+                    CommandActionType.REMINDER_SCHEDULED -> 2200L // Enough time to read confirmation
+                    else -> 2000L
                 }
-            }, dismissDelay)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (!isFinishing && !isDestroyed) {
+                        finish()
+                    }
+                }, dismissDelay)
+            }
         }
     }
 
@@ -149,11 +161,9 @@ fun OverlayBottomSheet(
                     isExecuting = false
                     resultState = res
                 }
-            } else {
-                onDismiss()
             }
         } else {
-            // If user cancelled voice input without speaking, keep sheet open for text input
+            // User cancelled voice input: keep sheet open for typing
         }
     }
 
@@ -321,8 +331,6 @@ fun OverlayBottomSheet(
                         }
                     }
                 }
-
-
             }
         }
     }

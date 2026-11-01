@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.pocketcore.assistant.data.dao.CommandLogDao
 import com.pocketcore.assistant.data.dao.NoteDao
 import com.pocketcore.assistant.data.dao.ReminderDao
@@ -18,7 +17,7 @@ import com.pocketcore.assistant.data.entity.ReminderEntity
         ReminderEntity::class,
         CommandLogEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class PocketCoreDatabase : RoomDatabase() {

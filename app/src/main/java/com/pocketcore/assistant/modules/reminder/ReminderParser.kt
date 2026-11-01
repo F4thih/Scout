@@ -1,5 +1,6 @@
 package com.pocketcore.assistant.modules.reminder
 
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -8,20 +9,18 @@ import java.util.regex.Pattern
 
 data class ParsedReminder(
     val task: String,
-    val triggerDateTime: LocalDateTime
+    val triggerDateTime: LocalDateTime,
+    val repeatInterval: String = "NONE" // NONE, DAILY, WEEKLY, WEEKDAYS, MONTHLY
 )
 
 /**
  * Natural language reminder parser using regex and java.time.
- * Strictly offline, zero dependencies, light footprint for Helio G81.
+ * Strictly offline, zero dependencies, light footprint.
  *
- * Implements intelligent time inference:
- * 1. "after X minutes", "in X mins", "after 2 hours" -> adds relative time directly to today.
- * 2. "today at X" or "at X" -> prioritizes today.
- * 3. Meridian context awareness:
- *    - If user says a plain hour (e.g. "at 5" or "at 9") without specifying AM/PM:
- *      * If current time is afternoon/evening (PM), check if 5 PM / 9 PM is still in the future today. If so, choose PM today!
- *      * If that PM time has passed, or if current time is morning, compare AM and PM to schedule the soonest upcoming occurrence.
+ * Supports:
+ * - Recurring: "every day at 8am", "daily at 9", "every week on Monday at 10am", "every Monday at 5pm", "every weekday at 9am"
+ * - Relative: "in X minutes", "after X hours"
+ * - Exact dates & times: "tomorrow at 5pm", "today at 4", "on Nov 5 at 2pm"
  */
 object ReminderParser {
 
@@ -40,17 +39,96 @@ object ReminderParser {
         "dec" to 12, "december" to 12
     )
 
+    private val DAY_MAP = mapOf(
+        "monday" to DayOfWeek.MONDAY, "mon" to DayOfWeek.MONDAY,
+        "tuesday" to DayOfWeek.TUESDAY, "tue" to DayOfWeek.TUESDAY,
+        "wednesday" to DayOfWeek.WEDNESDAY, "wed" to DayOfWeek.WEDNESDAY,
+        "thursday" to DayOfWeek.THURSDAY, "thu" to DayOfWeek.THURSDAY,
+        "friday" to DayOfWeek.FRIDAY, "fri" to DayOfWeek.FRIDAY,
+        "saturday" to DayOfWeek.SATURDAY, "sat" to DayOfWeek.SATURDAY,
+        "sunday" to DayOfWeek.SUNDAY, "sun" to DayOfWeek.SUNDAY
+    )
+
     fun parse(input: String, now: LocalDateTime = LocalDateTime.now()): ParsedReminder? {
         val cleanInput = input.trim()
         val lower = cleanInput.lowercase(Locale.ENGLISH)
 
-        // Must relate to remind / reminder
         if (!lower.startsWith("remind") && !lower.startsWith("set a reminder") && !lower.startsWith("reminder")) {
             return null
         }
 
-        // 1. RELATIVE TIME: "in X minutes", "after X minutes", "after 2 hours", "today after 2 minutes"
-        // e.g.: "remind me to call Mom after 2 minutes", "remind me to check mail in 30 mins"
+        // 1. RECURRING: "every weekday at [time]"
+        val weekdayPattern = Pattern.compile(
+            "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:every\\s+weekdays?|on\\s+weekdays?)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
+            Pattern.CASE_INSENSITIVE
+        )
+        val wdMatcher = weekdayPattern.matcher(cleanInput)
+        if (wdMatcher.find()) {
+            val task = wdMatcher.group(1)?.trim() ?: return null
+            val timePart = wdMatcher.group(2)
+            val parsedTime = if (!timePart.isNullOrBlank()) {
+                parseTimeWithContext(timePart, now.toLocalTime()) ?: LocalTime.of(9, 0)
+            } else LocalTime.of(9, 0)
+
+            var targetDate = now.toLocalDate()
+            var candidate = LocalDateTime.of(targetDate, parsedTime)
+            if (candidate.isBefore(now) || targetDate.dayOfWeek == DayOfWeek.SATURDAY || targetDate.dayOfWeek == DayOfWeek.SUNDAY) {
+                targetDate = nextWeekday(targetDate, candidate.isBefore(now))
+                candidate = LocalDateTime.of(targetDate, parsedTime)
+            }
+            return ParsedReminder(task = cleanTask(task), triggerDateTime = candidate, repeatInterval = "WEEKDAYS")
+        }
+
+        // 2. RECURRING: "every [Monday|Tue|...] at [time]" or "weekly on [day] at [time]"
+        val weeklyDayPattern = Pattern.compile(
+            "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:every\\s+|weekly\\s+on\\s+)([a-zA-Z]+)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
+            Pattern.CASE_INSENSITIVE
+        )
+        val wdDayMatcher = weeklyDayPattern.matcher(cleanInput)
+        if (wdDayMatcher.find()) {
+            val task = wdDayMatcher.group(1)?.trim() ?: return null
+            val dayName = wdDayMatcher.group(2)?.lowercase(Locale.ENGLISH) ?: ""
+            val timePart = wdDayMatcher.group(3)
+
+            if (DAY_MAP.containsKey(dayName)) {
+                val targetDayOfWeek = DAY_MAP[dayName]!!
+                val parsedTime = if (!timePart.isNullOrBlank()) {
+                    parseTimeWithContext(timePart, now.toLocalTime()) ?: LocalTime.of(9, 0)
+                } else LocalTime.of(9, 0)
+
+                var targetDate = now.toLocalDate()
+                while (targetDate.dayOfWeek != targetDayOfWeek) {
+                    targetDate = targetDate.plusDays(1)
+                }
+                var candidate = LocalDateTime.of(targetDate, parsedTime)
+                if (candidate.isBefore(now)) {
+                    candidate = candidate.plusWeeks(1)
+                }
+                return ParsedReminder(task = cleanTask(task), triggerDateTime = candidate, repeatInterval = "WEEKLY")
+            }
+        }
+
+        // 3. RECURRING: "every day at [time]" or "daily at [time]"
+        val dailyPattern = Pattern.compile(
+            "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:every\\s+day|daily)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
+            Pattern.CASE_INSENSITIVE
+        )
+        val dMatcher = dailyPattern.matcher(cleanInput)
+        if (dMatcher.find()) {
+            val task = dMatcher.group(1)?.trim() ?: return null
+            val timePart = dMatcher.group(2)
+            val parsedTime = if (!timePart.isNullOrBlank()) {
+                parseTimeWithContext(timePart, now.toLocalTime()) ?: LocalTime.of(9, 0)
+            } else LocalTime.of(9, 0)
+
+            var candidate = LocalDateTime.of(now.toLocalDate(), parsedTime)
+            if (candidate.isBefore(now)) {
+                candidate = candidate.plusDays(1)
+            }
+            return ParsedReminder(task = cleanTask(task), triggerDateTime = candidate, repeatInterval = "DAILY")
+        }
+
+        // 4. RELATIVE TIME: "in X minutes", "after X minutes", "after 2 hours", "today after 2 minutes"
         val relativePattern = Pattern.compile(
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+|set\\s+a\\s+reminder\\s+(?:to\\s+)?)(.+?)(?:\\s+at\\s+today|\\s+today)?(?:\\s+after|\\s+in)\\s+(\\d+)\\s*(minute|minutes|min|mins|hour|hours|hr|hrs|second|seconds|sec|secs)\\b",
             Pattern.CASE_INSENSITIVE
@@ -69,7 +147,7 @@ object ReminderParser {
             return ParsedReminder(task = cleanTask(task), triggerDateTime = targetTime)
         }
 
-        // 2. SPECIFIC DATE + TIME (e.g., "remind me to call Mom on Oct 24 at 10am")
+        // 5. SPECIFIC DATE + TIME (e.g., "remind me to call Mom on Oct 24 at 10am")
         val dateTimePattern = Pattern.compile(
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:on|for)\\s+([a-zA-Z]+|\\d{1,2})[\\s/\\-]+(\\d{1,2}|[a-zA-Z]+)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
             Pattern.CASE_INSENSITIVE
@@ -110,8 +188,7 @@ object ReminderParser {
             }
         }
 
-        // 3. "TOMORROW AT [TIME]"
-        // e.g., "remind me to buy groceries tomorrow at 5pm"
+        // 6. "TOMORROW AT [TIME]"
         val tomorrowPattern = Pattern.compile(
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:tomorrow|tmrw)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?",
             Pattern.CASE_INSENSITIVE
@@ -129,8 +206,7 @@ object ReminderParser {
             return ParsedReminder(task = cleanTask(task), triggerDateTime = LocalDateTime.of(date, parsedTime))
         }
 
-        // 4. "TODAY AT [TIME]" or "AT TODAY [TIME]"
-        // e.g., "remind me to call Mom today at 6pm" or "remind me to check mail at today 5"
+        // 7. "TODAY AT [TIME]" or "AT TODAY [TIME]"
         val todayPattern = Pattern.compile(
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:(?:today\\s+at|at\\s+today|at)\\s+)(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\b",
             Pattern.CASE_INSENSITIVE
@@ -142,7 +218,6 @@ object ReminderParser {
             val parsedTime = parseTimeWithContext(timePart, now.toLocalTime())
             if (parsedTime != null) {
                 var triggerDateTime = LocalDateTime.of(now.toLocalDate(), parsedTime)
-                // If the time already passed today, only push to tomorrow if user didn't explicitly say "today"
                 if (triggerDateTime.isBefore(now)) {
                     if (!lower.contains("today")) {
                         triggerDateTime = triggerDateTime.plusDays(1)
@@ -152,7 +227,7 @@ object ReminderParser {
             }
         }
 
-        // 5. GENERIC FALLBACK: "remind me to [task]" without time specified -> default to 1 hour later
+        // 8. GENERIC FALLBACK: "remind me to [task]" without time specified -> default to 1 hour later
         val genericPattern = Pattern.compile(
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+)$",
             Pattern.CASE_INSENSITIVE
@@ -169,24 +244,23 @@ object ReminderParser {
         return null
     }
 
+    private fun nextWeekday(start: LocalDate, includeTodayPassed: Boolean): LocalDate {
+        var d = if (includeTodayPassed) start.plusDays(1) else start
+        while (d.dayOfWeek == DayOfWeek.SATURDAY || d.dayOfWeek == DayOfWeek.SUNDAY) {
+            d = d.plusDays(1)
+        }
+        return d
+    }
+
     private fun cleanTask(raw: String): String {
         return raw.trim()
             .replaceFirst(Regex("^(?:me\\s+)?to\\s+", RegexOption.IGNORE_CASE), "")
             .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
     }
 
-    /**
-     * Intelligently parses time string:
-     * - If explicit AM/PM is provided, respects it.
-     * - If plain hour is provided (e.g. "5" or "5:30"):
-     *   * Checks if current time is PM and whether PM version is in the future today.
-     *   * If current time is morning (AM), checks if AM is in future; otherwise checks PM.
-     *   * Always prioritizes the soonest upcoming hour today!
-     */
     fun parseTimeWithContext(raw: String, currentTime: LocalTime = LocalTime.now()): LocalTime? {
         val cleaned = raw.trim().lowercase(Locale.ENGLISH).replace(" ", "")
 
-        // 1. Explicit 12-hour format with AM/PM (e.g. "9pm", "9:30pm", "10am")
         val amPmPattern = Pattern.compile("(\\d{1,2})(?::(\\d{2}))?(am|pm)")
         val matcher = amPmPattern.matcher(cleaned)
         if (matcher.matches()) {
@@ -204,20 +278,16 @@ object ReminderParser {
             } else null
         }
 
-        // 2. 24-hour format with colon (e.g. "21:30" or "09:00" or "5:30")
         val colonPattern = Pattern.compile("(\\d{1,2}):(\\d{2})")
         val colonMatcher = colonPattern.matcher(cleaned)
         if (colonMatcher.matches()) {
-            var hour = colonMatcher.group(1)?.toIntOrNull() ?: return null
+            val hour = colonMatcher.group(1)?.toIntOrNull() ?: return null
             val minute = colonMatcher.group(2)?.toIntOrNull() ?: return null
 
-            // If hour is 1..12 and no AM/PM was specified:
-            // Apply context inference based on current time
             if (hour in 1..12) {
                 val candidateAm = if (hour == 12) LocalTime.of(0, minute) else LocalTime.of(hour, minute)
                 val candidatePm = if (hour == 12) LocalTime.of(12, minute) else LocalTime.of(hour + 12, minute)
 
-                // If currently afternoon (>= 12:00)
                 return if (currentTime.hour >= 12) {
                     if (candidatePm.isAfter(currentTime)) candidatePm else candidateAm
                 } else {
@@ -230,7 +300,6 @@ object ReminderParser {
             } else null
         }
 
-        // 3. Plain number (e.g. "5", "9", "2", "11")
         val plainHour = cleaned.toIntOrNull()
         if (plainHour != null && plainHour in 1..24) {
             if (plainHour > 12 && plainHour <= 23) {
@@ -241,13 +310,9 @@ object ReminderParser {
             val candidateAm = if (hour12 == 12) LocalTime.of(0, 0) else LocalTime.of(hour12, 0)
             val candidatePm = if (hour12 == 12) LocalTime.of(12, 0) else LocalTime.of(hour12 + 12, 0)
 
-            // If user triggers at PM:
             return if (currentTime.hour >= 12) {
-                // If PM version is still in the future today, schedule PM today!
-                // Otherwise if already passed, fall back to AM
                 if (candidatePm.isAfter(currentTime)) candidatePm else candidateAm
             } else {
-                // If in AM: if AM is in the future today, pick AM; otherwise pick PM
                 if (candidateAm.isAfter(currentTime)) candidateAm else candidatePm
             }
         }

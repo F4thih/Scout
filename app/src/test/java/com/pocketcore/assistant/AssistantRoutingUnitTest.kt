@@ -125,6 +125,33 @@ class AssistantRoutingUnitTest {
         assertEquals(2, parsed.triggerDateTime.dayOfMonth)
         assertEquals(17, parsed.triggerDateTime.hour)
         assertEquals(0, parsed.triggerDateTime.minute)
+        assertEquals("NONE", parsed.repeatInterval)
+    }
+
+    @Test
+    fun testRecurringRemindersParsing() {
+        val fixedNow = LocalDateTime.of(2026, 11, 1, 10, 0) // Sunday Nov 1
+
+        // Daily recurring
+        val daily = ReminderParser.parse("remind me to take vitamins every day at 8am", fixedNow)
+        assertNotNull(daily)
+        assertEquals("Take vitamins", daily!!.task)
+        assertEquals("DAILY", daily.repeatInterval)
+        assertEquals(8, daily.triggerDateTime.hour)
+
+        // Weekly recurring
+        val weekly = ReminderParser.parse("remind me to attend standup every Monday at 10am", fixedNow)
+        assertNotNull(weekly)
+        assertEquals("Attend standup", weekly!!.task)
+        assertEquals("WEEKLY", weekly.repeatInterval)
+        assertEquals(10, weekly.triggerDateTime.hour)
+
+        // Weekday recurring
+        val weekdays = ReminderParser.parse("remind me to review tasks every weekday at 9am", fixedNow)
+        assertNotNull(weekdays)
+        assertEquals("Review tasks", weekdays!!.task)
+        assertEquals("WEEKDAYS", weekdays.repeatInterval)
+        assertEquals(9, weekdays.triggerDateTime.hour)
     }
 
     @Test
