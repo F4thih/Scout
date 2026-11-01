@@ -20,7 +20,7 @@
 
 Scout is a native Android assistant built with **Kotlin** and **Jetpack Compose**. It runs entirely on your device with **zero internet permissions** — no data ever leaves your phone.
 
-Designed for privacy enthusiasts and budget-friendly hardware (tested on the **Moto G05**, MediaTek Helio G81, 4 GB RAM), Scout delivers voice-powered productivity without background battery drain.
+Designed for privacy enthusiasts and budget-friendly hardware alike, Scout is lightweight enough to run smoothly on entry-level Android devices while delivering voice-powered productivity without background battery drain.
 
 ---
 
