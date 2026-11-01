@@ -1,6 +1,7 @@
 package com.pocketcore.assistant.ui
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -127,6 +128,34 @@ fun MainAssistantScreen(
     }
 
     var searchQuery by remember { mutableStateOf("") }
+    var isDefaultAssistant by remember { mutableStateOf(true) }
+
+    fun checkIsDefaultAssistant(): Boolean {
+        return try {
+            val defaultAssistant = Settings.Secure.getString(
+                context.contentResolver,
+                "assistant"
+            )
+            val currentComponent = ComponentName(context, AssistantOverlayActivity::class.java).flattenToShortString()
+            val currentPkg = context.packageName
+            defaultAssistant != null && (defaultAssistant.contains(currentPkg) || defaultAssistant.contains(currentComponent))
+        } catch (e: Exception) {
+            true // default to true on error so we don't nag
+        }
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isDefaultAssistant = checkIsDefaultAssistant()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -263,6 +292,20 @@ fun MainAssistantScreen(
             when (selectedTab) {
                 0 -> CommandView(
                     uiState = uiState,
+                    isDefaultAssistant = isDefaultAssistant,
+                    onSetDefaultAssistant = {
+                        try {
+                            val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                val fallbackIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                                context.startActivity(fallbackIntent)
+                            } catch (e2: Exception) {
+                                Toast.makeText(context, "Please open Android Settings -> Default Apps -> Digital Assistant", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
                     onInputChanged = viewModel::onInputChanged,
                     onExecute = { viewModel.executeCommand(context) },
                     onMicClick = triggerSpeech
@@ -284,6 +327,8 @@ fun MainAssistantScreen(
 @Composable
 fun CommandView(
     uiState: AssistantUiState,
+    isDefaultAssistant: Boolean,
+    onSetDefaultAssistant: () -> Unit,
     onInputChanged: (String) -> Unit,
     onExecute: () -> Unit,
     onMicClick: () -> Unit
@@ -294,6 +339,62 @@ fun CommandView(
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (!isDefaultAssistant) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Assistant,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Make Scout your default assistant",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                "Trigger offline voice with long-press or gestures",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilledTonalButton(
+                            onClick = onSetDefaultAssistant,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Set Default", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             // Refined Input Box + Offline Voice Button
             Card(
