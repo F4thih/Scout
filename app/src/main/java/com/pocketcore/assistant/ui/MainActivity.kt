@@ -43,6 +43,7 @@ import com.pocketcore.assistant.core.FeatureRegistry
 import com.pocketcore.assistant.data.entity.NoteEntity
 import com.pocketcore.assistant.data.entity.ReminderEntity
 import com.pocketcore.assistant.ui.theme.PocketCoreTheme
+import kotlinx.coroutines.launch
 import com.pocketcore.assistant.ui.theme.ThemeMode
 import java.text.SimpleDateFormat
 import java.util.*
@@ -187,7 +188,7 @@ fun MainAssistantScreen(
                                     modifier = Modifier.padding(top = 1.dp)
                                 ) {
                                     Text(
-                                        "v1.0.0",
+                                        "v1.1.0",
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -719,14 +720,106 @@ fun NotesListView(
 
 @Composable
 fun ModulesSettingsView() {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val modules = FeatureRegistry.getAllModules()
+
+    // Export launcher using SAF
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val json = com.pocketcore.assistant.data.backup.BackupHelper.exportDataToJson(context)
+                val success = com.pocketcore.assistant.data.backup.BackupHelper.writeExportToUri(context, uri, json)
+                if (success) {
+                    Toast.makeText(context, "Backup exported successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Failed to save backup file.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Import launcher using SAF
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val result = com.pocketcore.assistant.data.backup.BackupHelper.importDataFromUri(context, uri)
+                result.onSuccess { (notesCount, remindersCount) ->
+                    Toast.makeText(context, "Restored $notesCount notes & $remindersCount reminders!", Toast.LENGTH_LONG).show()
+                }.onFailure {
+                    Toast.makeText(context, "Error importing backup: ${it.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Backup & Restore Section
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Save,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Local Data Backup & Restore", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+                Text(
+                    "Export your notes & reminders as a private JSON file or restore them when updating/changing devices.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
+                            exportLauncher.launch("scout_backup_$timeStamp.json")
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Export Data", fontSize = 13.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            importLauncher.launch(arrayOf("application/json", "text/*"))
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Restore Data", fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
         Column {
             Text("Modular Architecture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
