@@ -79,6 +79,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 val current = allReminders.firstOrNull { it.id == reminderId }
                 if (current != null) {
                     if (current.repeatInterval != "NONE") {
+                        // Recurring reminder: compute next occurrence
                         val nextTrigger = computeNextTrigger(current.triggerTimeMillis, current.repeatInterval)
                         val updated = current.copy(triggerTimeMillis = nextTrigger)
                         db.reminderDao().updateReminder(updated)
@@ -86,10 +87,12 @@ class AlarmReceiver : BroadcastReceiver() {
                         // Reschedule with AlarmManager
                         scheduleAlarm(context, updated.id, updated.displayDescription, nextTrigger)
                     } else {
-                        val updated = current.copy(isCompleted = true)
-                        db.reminderDao().updateReminder(updated)
+                        // One-time reminder: passed its trigger time, automatically delete
+                        db.reminderDao().deleteReminder(current)
                     }
                 }
+                // Purge any other expired one-time reminders as well
+                db.reminderDao().purgeExpiredReminders(System.currentTimeMillis() - 60_000L)
             }
         }
     }

@@ -14,17 +14,37 @@ class NoteModule : AssistantModule {
     override val description: String = "Save offline notes instantly (e.g. 'Note Buy milk and eggs')"
     override val priority: Int = 90
 
+    private val NOTE_PREFIXES = listOf(
+        "take a note ",
+        "take note ",
+        "write a note ",
+        "write down ",
+        "write note ",
+        "jot down ",
+        "jot this down ",
+        "save note ",
+        "save a note ",
+        "create note ",
+        "remember that ",
+        "note that ",
+        "note "
+    )
+
     override fun canHandle(input: String): Boolean {
         val lower = input.trim().lowercase(Locale.ENGLISH)
-        return lower.startsWith("note ") || lower.startsWith("take note ") || lower == "note"
+        return lower == "note" || NOTE_PREFIXES.any { lower.startsWith(it) }
     }
 
     override suspend fun execute(context: Context, input: String): CommandResult {
         val trimmed = input.trim()
-        val noteContent = when {
-            trimmed.startsWith("take note ", ignoreCase = true) -> trimmed.substring(10).trim()
-            trimmed.startsWith("note ", ignoreCase = true) -> trimmed.substring(5).trim()
-            else -> ""
+        val lower = trimmed.lowercase(Locale.ENGLISH)
+
+        var noteContent = ""
+        for (prefix in NOTE_PREFIXES) {
+            if (lower.startsWith(prefix)) {
+                noteContent = trimmed.substring(prefix.length).trim()
+                break
+            }
         }
 
         if (noteContent.isEmpty()) {

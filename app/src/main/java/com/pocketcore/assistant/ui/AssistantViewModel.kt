@@ -20,12 +20,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+enum class DefaultInputMode {
+    VOICE,
+    KEYBOARD
+}
+
 data class AssistantUiState(
     val inputText: String = "",
     val isExecuting: Boolean = false,
     val lastResult: CommandResult? = null,
     val isListening: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val defaultInputMode: DefaultInputMode = DefaultInputMode.VOICE
 )
 
 class AssistantViewModel(application: Application) : AndroidViewModel(application) {
@@ -36,23 +42,31 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _uiState = MutableStateFlow(
         AssistantUiState(
-            themeMode = loadThemeMode()
+            themeMode = loadThemeMode(),
+            defaultInputMode = loadDefaultInputMode()
         )
     )
     val uiState: StateFlow<AssistantUiState> = _uiState.asStateFlow()
 
-    // Database reactive streams
+    // Database reactive streams (actively filter and purge expired passed reminders)
     val notes = db.noteDao().getAllNotes().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         emptyList()
     )
 
-    val reminders = db.reminderDao().getAllReminders().stateIn(
+    val reminders = db.reminderDao().getActiveReminders().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         emptyList()
     )
+
+    init {
+        // Automatically purge any one-time reminders that passed
+        viewModelScope.launch {
+            db.reminderDao().purgeExpiredReminders(System.currentTimeMillis())
+        }
+    }
 
     val recentLogs = db.commandLogDao().getRecentLogs().stateIn(
         viewModelScope,
@@ -69,9 +83,23 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    private fun loadDefaultInputMode(): DefaultInputMode {
+        val saved = prefs.getString("default_input_mode", DefaultInputMode.VOICE.name) ?: DefaultInputMode.VOICE.name
+        return try {
+            DefaultInputMode.valueOf(saved)
+        } catch (e: Exception) {
+            DefaultInputMode.VOICE
+        }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString("theme_mode", mode.name).apply()
         _uiState.value = _uiState.value.copy(themeMode = mode)
+    }
+
+    fun setDefaultInputMode(mode: DefaultInputMode) {
+        prefs.edit().putString("default_input_mode", mode.name).apply()
+        _uiState.value = _uiState.value.copy(defaultInputMode = mode)
     }
 
     fun onInputChanged(newText: String) {

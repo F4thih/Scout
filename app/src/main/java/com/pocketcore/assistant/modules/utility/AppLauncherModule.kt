@@ -14,17 +14,32 @@ class AppLauncherModule : AssistantModule {
     override val description: String = "Launch installed apps via offline voice or text (e.g. 'Open Camera', 'Launch Calculator')"
     override val priority: Int = 85
 
+    private val LAUNCH_PREFIXES = listOf(
+        "open up ",
+        "open ",
+        "launch ",
+        "start up ",
+        "start ",
+        "run app ",
+        "run ",
+        "go to "
+    )
+
     override fun canHandle(input: String): Boolean {
         val lower = input.trim().lowercase(Locale.ENGLISH)
-        return lower.startsWith("open ") || lower.startsWith("launch ")
+        return LAUNCH_PREFIXES.any { lower.startsWith(it) }
     }
 
     override suspend fun execute(context: Context, input: String): CommandResult {
         val trimmed = input.trim()
-        val targetAppName = when {
-            trimmed.startsWith("open ", ignoreCase = true) -> trimmed.substring(5).trim()
-            trimmed.startsWith("launch ", ignoreCase = true) -> trimmed.substring(7).trim()
-            else -> ""
+        val lower = trimmed.lowercase(Locale.ENGLISH)
+
+        var targetAppName = ""
+        for (prefix in LAUNCH_PREFIXES) {
+            if (lower.startsWith(prefix)) {
+                targetAppName = trimmed.substring(prefix.length).trim()
+                break
+            }
         }
 
         if (targetAppName.isEmpty()) {

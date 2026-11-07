@@ -31,6 +31,19 @@ class ReminderModule : AssistantModule {
     override fun canHandle(input: String): Boolean {
         val lower = input.trim().lowercase(Locale.ENGLISH)
         return lower.startsWith("remind") ||
+                lower.startsWith("reminder") ||
+                lower.startsWith("set a reminder") ||
+                lower.startsWith("set reminder") ||
+                lower.startsWith("add a reminder") ||
+                lower.startsWith("add reminder") ||
+                lower.startsWith("create a reminder") ||
+                lower.startsWith("create reminder") ||
+                lower.startsWith("dont let me forget") ||
+                lower.startsWith("don't let me forget") ||
+                lower.startsWith("alert me to") ||
+                lower.startsWith("alert me at") ||
+                lower.startsWith("alert me in") ||
+                lower.startsWith("wake me up") ||
                 lower.startsWith("what are my reminders") ||
                 lower.startsWith("show reminders") ||
                 lower.startsWith("list reminders") ||

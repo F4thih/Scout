@@ -20,6 +20,9 @@ interface NoteDao {
 
 @Dao
 interface ReminderDao {
+    @Query("SELECT * FROM reminders WHERE isCompleted = 0 AND (triggerTimeMillis >= :currentTimeMillis OR repeatInterval != 'NONE') ORDER BY triggerTimeMillis ASC")
+    fun getActiveReminders(currentTimeMillis: Long = System.currentTimeMillis()): Flow<List<ReminderEntity>>
+
     @Query("SELECT * FROM reminders ORDER BY triggerTimeMillis ASC")
     fun getAllReminders(): Flow<List<ReminderEntity>>
 
@@ -40,6 +43,9 @@ interface ReminderDao {
 
     @Query("DELETE FROM reminders WHERE id = :id")
     suspend fun deleteReminderById(id: Long)
+
+    @Query("DELETE FROM reminders WHERE isCompleted = 1 OR (repeatInterval = 'NONE' AND triggerTimeMillis < :cutoffTimeMillis)")
+    suspend fun purgeExpiredReminders(cutoffTimeMillis: Long)
 }
 
 

@@ -29,9 +29,12 @@ class AssistantRoutingUnitTest {
         val noteModule = NoteModule()
         val appLauncherModule = AppLauncherModule()
 
-        // Reminder module matching
+        // Reminder module matching with enhanced phrases
         assertTrue(reminderModule.canHandle("Remind me to buy groceries at 9pm"))
         assertTrue(reminderModule.canHandle("remind me to call Mom tomorrow"))
+        assertTrue(reminderModule.canHandle("don't let me forget to call Dad at 6pm"))
+        assertTrue(reminderModule.canHandle("alert me to check oven in 15 minutes"))
+        assertTrue(reminderModule.canHandle("wake me up at 7am"))
         assertTrue(reminderModule.canHandle("what are my reminders"))
         assertTrue(reminderModule.canHandle("check reminders today"))
         assertTrue(reminderModule.canHandle("any reminders at 9pm"))
@@ -39,14 +42,20 @@ class AssistantRoutingUnitTest {
         assertTrue(reminderModule.canHandle("remove reminder 1"))
         assertFalse(reminderModule.canHandle("Open camera"))
 
-        // Note module matching
+        // Note module matching with enhanced phrases
         assertTrue(noteModule.canHandle("Note Buy groceries"))
         assertTrue(noteModule.canHandle("Take note Meeting notes"))
+        assertTrue(noteModule.canHandle("write down buy sourdough and milk"))
+        assertTrue(noteModule.canHandle("jot down phone number 555-1234"))
+        assertTrue(noteModule.canHandle("remember that passport expires in July"))
         assertFalse(noteModule.canHandle("Open Settings"))
 
-        // App launcher matching
+        // App launcher matching with enhanced phrases
         assertTrue(appLauncherModule.canHandle("Open Camera"))
         assertTrue(appLauncherModule.canHandle("launch Settings"))
+        assertTrue(appLauncherModule.canHandle("start Spotify"))
+        assertTrue(appLauncherModule.canHandle("run Calculator"))
+        assertTrue(appLauncherModule.canHandle("go to WhatsApp"))
         assertFalse(appLauncherModule.canHandle("Note hello"))
     }
 
@@ -152,6 +161,30 @@ class AssistantRoutingUnitTest {
         assertEquals("Review tasks", weekdays!!.task)
         assertEquals("WEEKDAYS", weekdays.repeatInterval)
         assertEquals(9, weekdays.triggerDateTime.hour)
+    }
+
+    @Test
+    fun testEnhancedReminderPhrases() {
+        val fixedNow = LocalDateTime.of(2026, 11, 1, 10, 0)
+
+        // "don't let me forget to [task] at [time]"
+        val forgetTest = ReminderParser.parse("don't let me forget to call Dad at 6pm", fixedNow)
+        assertNotNull(forgetTest)
+        assertEquals("Call Dad", forgetTest!!.task)
+        assertEquals(18, forgetTest.triggerDateTime.hour)
+
+        // "wake me up at [time]"
+        val wakeTest = ReminderParser.parse("wake me up at 7am", fixedNow)
+        assertNotNull(wakeTest)
+        assertEquals("Wake up", wakeTest!!.task)
+        assertEquals(7, wakeTest.triggerDateTime.hour)
+
+        // "alert me to [task] in [time]"
+        val alertTest = ReminderParser.parse("alert me to check oven in 20 minutes", fixedNow)
+        assertNotNull(alertTest)
+        assertEquals("Check oven", alertTest!!.task)
+        assertEquals(10, alertTest.triggerDateTime.hour)
+        assertEquals(20, alertTest.triggerDateTime.minute)
     }
 
     @Test

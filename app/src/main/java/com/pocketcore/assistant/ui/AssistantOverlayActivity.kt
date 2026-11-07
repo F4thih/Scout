@@ -28,8 +28,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -143,9 +146,17 @@ fun OverlayBottomSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusRequester = remember { FocusRequester() }
+
     var inputText by remember { mutableStateOf("") }
     var isExecuting by remember { mutableStateOf(false) }
     var resultState by remember { mutableStateOf<CommandResult?>(null) }
+
+    val prefs = remember { context.getSharedPreferences("scout_settings", Context.MODE_PRIVATE) }
+    val defaultInputMode = remember {
+        prefs.getString("default_input_mode", "VOICE") ?: "VOICE"
+    }
 
     // Direct offline speech recognizer launcher
     val speechLauncher = rememberLauncherForActivityResult(
@@ -181,9 +192,18 @@ fun OverlayBottomSheet(
         }
     }
 
-    // Auto-launch voice prompt immediately when invoked by gesture/hardware key
+    // Launch behavior based on user setting: VOICE vs KEYBOARD
     LaunchedEffect(Unit) {
-        launchOfflineVoice()
+        if (defaultInputMode == "KEYBOARD") {
+            try {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (e: Exception) {
+                // Ignore focus error
+            }
+        } else {
+            launchOfflineVoice()
+        }
     }
 
     Box(
@@ -286,7 +306,9 @@ fun OverlayBottomSheet(
                             value = inputText,
                             onValueChange = { inputText = it },
                             placeholder = { Text("Speak or type command...") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,

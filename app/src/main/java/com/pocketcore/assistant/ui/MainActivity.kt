@@ -42,6 +42,7 @@ import com.pocketcore.assistant.core.AssistantModule
 import com.pocketcore.assistant.core.FeatureRegistry
 import com.pocketcore.assistant.data.entity.NoteEntity
 import com.pocketcore.assistant.data.entity.ReminderEntity
+import com.pocketcore.assistant.ui.DefaultInputMode
 import com.pocketcore.assistant.ui.theme.PocketCoreTheme
 import kotlinx.coroutines.launch
 import com.pocketcore.assistant.ui.theme.ThemeMode
@@ -188,7 +189,7 @@ fun MainAssistantScreen(
                                     modifier = Modifier.padding(top = 1.dp)
                                 ) {
                                     Text(
-                                        "v1.1.0",
+                                        "v1.2.0",
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -200,48 +201,6 @@ fun MainAssistantScreen(
                     }
                 },
                 actions = {
-                    // Theme Mode Selector Button
-                    var showThemeMenu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { showThemeMenu = true }) {
-                        Icon(
-                            imageVector = when (uiState.themeMode) {
-                                ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
-                                ThemeMode.DARK -> Icons.Default.DarkMode
-                                ThemeMode.LIGHT -> Icons.Default.LightMode
-                            },
-                            contentDescription = "Theme Mode"
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showThemeMenu,
-                        onDismissRequest = { showThemeMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Device System Theme") },
-                            onClick = {
-                                viewModel.setThemeMode(ThemeMode.SYSTEM)
-                                showThemeMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.BrightnessAuto, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Dark Theme") },
-                            onClick = {
-                                viewModel.setThemeMode(ThemeMode.DARK)
-                                showThemeMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.DarkMode, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Light Theme") },
-                            onClick = {
-                                viewModel.setThemeMode(ThemeMode.LIGHT)
-                                showThemeMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.LightMode, contentDescription = null) }
-                        )
-                    }
-
                     IconButton(onClick = onDismiss) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
                     }
@@ -278,8 +237,8 @@ fun MainAssistantScreen(
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Tune, contentDescription = "Modules") },
-                    label = { Text("Modules") }
+                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings") }
                 )
             }
         }
@@ -319,7 +278,11 @@ fun MainAssistantScreen(
                     notes = notes,
                     onDelete = viewModel::deleteNote
                 )
-                3 -> ModulesSettingsView()
+                3 -> AppSettingsView(
+                    uiState = uiState,
+                    onSetThemeMode = viewModel::setThemeMode,
+                    onSetDefaultInputMode = viewModel::setDefaultInputMode
+                )
             }
         }
     }
@@ -719,10 +682,20 @@ fun NotesListView(
 }
 
 @Composable
-fun ModulesSettingsView() {
+fun AppSettingsView(
+    uiState: AssistantUiState,
+    onSetThemeMode: (ThemeMode) -> Unit,
+    onSetDefaultInputMode: (DefaultInputMode) -> Unit
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val modules = FeatureRegistry.getAllModules()
+
+    // Dialog States for modular settings
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showInputModeDialog by remember { mutableStateOf(false) }
+    var showBackupDialog by remember { mutableStateOf(false) }
+    var showModulesDialog by remember { mutableStateOf(false) }
 
     // Export launcher using SAF
     val exportLauncher = rememberLauncherForActivityResult(
@@ -757,112 +730,387 @@ fun ModulesSettingsView() {
         }
     }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Backup & Restore Section
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Local Data Backup & Restore", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-                Text(
-                    "Export your notes & reminders as a private JSON file or restore them when updating/changing devices.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+        item {
+            Text(
+                "Preferences & Management",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+            )
+        }
+
+        // Tile 1: Appearance / Theme
+        item {
+            SettingsNavigationTile(
+                icon = Icons.Default.Palette,
+                title = "Appearance & Theme",
+                subtitle = when (uiState.themeMode) {
+                    ThemeMode.SYSTEM -> "System Default (Follow OS)"
+                    ThemeMode.DARK -> "Dark Theme"
+                    ThemeMode.LIGHT -> "Light Theme"
+                },
+                onClick = { showThemeDialog = true }
+            )
+        }
+
+        // Tile 2: Assistant Trigger Behavior
+        item {
+            SettingsNavigationTile(
+                icon = Icons.Default.Assistant,
+                title = "Assistant Trigger Input",
+                subtitle = when (uiState.defaultInputMode) {
+                    DefaultInputMode.VOICE -> "Voice Recognition (Default)"
+                    DefaultInputMode.KEYBOARD -> "Keyboard Prompt (Direct Typing)"
+                },
+                onClick = { showInputModeDialog = true }
+            )
+        }
+
+        // Tile 3: Data Backup & Restore
+        item {
+            SettingsNavigationTile(
+                icon = Icons.Default.Save,
+                title = "Local Data Backup & Restore",
+                subtitle = "Export or restore encrypted notes and reminders via JSON",
+                onClick = { showBackupDialog = true }
+            )
+        }
+
+        // Tile 4: Modules & Plugins Management
+        item {
+            val enabledCount = modules.count { FeatureRegistry.isModuleEnabled(it.id) }
+            SettingsNavigationTile(
+                icon = Icons.Default.Tune,
+                title = "Installed Modules",
+                subtitle = "$enabledCount of ${modules.size} offline modules enabled",
+                onClick = { showModulesDialog = true }
+            )
+        }
+
+        // Tile 5: About & Privacy Information
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Air-Gapped & Offline", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                    Text(
+                        "Scout declares 0 internet permissions. All data, speech recognition, and encryption keys never leave your phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+    }
+
+    // Dialog 1: Theme Selection Dialog
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("Select Theme", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        val isSelected = uiState.themeMode == mode
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    onSetThemeMode(mode)
+                                    showThemeDialog = false
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    onSetThemeMode(mode)
+                                    showThemeDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    when (mode) {
+                                        ThemeMode.SYSTEM -> "System Default"
+                                        ThemeMode.DARK -> "Dark Theme"
+                                        ThemeMode.LIGHT -> "Light Theme"
+                                    },
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    when (mode) {
+                                        ThemeMode.SYSTEM -> "Automatically adjust with device settings"
+                                        ThemeMode.DARK -> "Deep dark palette saving OLED battery"
+                                        ThemeMode.LIGHT -> "Clean, high-contrast light theme"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Dialog 2: Assistant Trigger Input Mode Dialog
+    if (showInputModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showInputModeDialog = false },
+            title = { Text("Assistant Trigger Input", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Choose what opens first when Scout is invoked via physical gesture, power key, or Quick Settings:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+
+                    DefaultInputMode.entries.forEach { mode ->
+                        val isSelected = uiState.defaultInputMode == mode
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    onSetDefaultInputMode(mode)
+                                    showInputModeDialog = false
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    onSetDefaultInputMode(mode)
+                                    showInputModeDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    when (mode) {
+                                        DefaultInputMode.VOICE -> "Voice Recognition"
+                                        DefaultInputMode.KEYBOARD -> "Keyboard Input"
+                                    },
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    when (mode) {
+                                        DefaultInputMode.VOICE -> "Immediately prompts offline voice listening"
+                                        DefaultInputMode.KEYBOARD -> "Pulls up keyboard for quiet, direct typing"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showInputModeDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Dialog 3: Backup & Restore Dialog
+    if (showBackupDialog) {
+        AlertDialog(
+            onDismissRequest = { showBackupDialog = false },
+            title = { Text("Backup & Restore Data", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "Safely save your offline notes and scheduled reminders to your device storage before updating or migrating.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
                     FilledTonalButton(
                         onClick = {
                             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
                             exportLauncher.launch("scout_backup_$timeStamp.json")
+                            showBackupDialog = false
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Export Data", fontSize = 13.sp)
+                        Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export JSON Backup")
                     }
 
                     OutlinedButton(
                         onClick = {
                             importLauncher.launch(arrayOf("application/json", "text/*"))
+                            showBackupDialog = false
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Restore Data", fontSize = 13.sp)
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Restore from JSON Backup")
                     }
                 }
+            },
+            confirmButton = {
+                TextButton(onClick = { showBackupDialog = false }) {
+                    Text("Close")
+                }
             }
-        }
+        )
+    }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-
-        Column {
-            Text("Modular Architecture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Plug-and-play local module registry. Toggle features on/off instantly without restarting.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-        }
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(modules, key = { it.id }) { module ->
-                var isEnabled by remember { mutableStateOf(FeatureRegistry.isModuleEnabled(module.id)) }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    // Dialog 4: Modules & Plugins Management Dialog
+    if (showModulesDialog) {
+        AlertDialog(
+            onDismissRequest = { showModulesDialog = false },
+            title = { Text("Installed Modules", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Text(
+                        "Toggle individual offline plugins on or off without restarting the app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(module.displayName, fontWeight = FontWeight.Bold)
-                            Text(module.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text("Priority Order: ${module.priority}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        Switch(
-                            checked = isEnabled,
-                            onCheckedChange = {
-                                isEnabled = it
-                                FeatureRegistry.setModuleEnabled(module.id, it)
+                        items(modules, key = { it.id }) { module ->
+                            var isEnabled by remember { mutableStateOf(FeatureRegistry.isModuleEnabled(module.id)) }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(module.displayName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                        Text(module.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                                    }
+                                    Switch(
+                                        checked = isEnabled,
+                                        onCheckedChange = {
+                                            isEnabled = it
+                                            FeatureRegistry.setModuleEnabled(module.id, it)
+                                        }
+                                    )
+                                }
                             }
-                        )
+                        }
                     }
                 }
+            },
+            confirmButton = {
+                TextButton(onClick = { showModulesDialog = false }) {
+                    Text("Done")
+                }
             }
+        )
+    }
+}
+
+@Composable
+fun SettingsNavigationTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }

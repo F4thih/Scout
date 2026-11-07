@@ -49,11 +49,65 @@ object ReminderParser {
         "sunday" to DayOfWeek.SUNDAY, "sun" to DayOfWeek.SUNDAY
     )
 
+    private val REMINDER_PREFIXES = listOf(
+        "don't let me forget to ",
+        "dont let me forget to ",
+        "don't let me forget ",
+        "dont let me forget ",
+        "alert me to ",
+        "alert me at ",
+        "alert me in ",
+        "wake me up at ",
+        "wake me up in ",
+        "wake me up ",
+        "set a reminder to ",
+        "set a reminder for ",
+        "set a reminder ",
+        "set reminder to ",
+        "set reminder for ",
+        "set reminder ",
+        "add a reminder to ",
+        "add a reminder for ",
+        "add a reminder ",
+        "add reminder to ",
+        "add reminder for ",
+        "add reminder ",
+        "create a reminder to ",
+        "create a reminder for ",
+        "create a reminder ",
+        "create reminder to ",
+        "create reminder for ",
+        "create reminder ",
+        "remind me to ",
+        "remind me ",
+        "remind "
+    )
+
     fun parse(input: String, now: LocalDateTime = LocalDateTime.now()): ParsedReminder? {
         val cleanInput = input.trim()
         val lower = cleanInput.lowercase(Locale.ENGLISH)
 
-        if (!lower.startsWith("remind") && !lower.startsWith("set a reminder") && !lower.startsWith("reminder")) {
+        // Normalize prefix to "remind me to "
+        var normalizedInput = cleanInput
+        for (prefix in REMINDER_PREFIXES) {
+            if (lower.startsWith(prefix)) {
+                val remainder = cleanInput.substring(prefix.length).trim()
+                normalizedInput = if (prefix.startsWith("wake me up")) {
+                    // "wake me up at 7am" -> "remind me to wake up at 7am"
+                    if (remainder.startsWith("at ") || remainder.startsWith("in ") || remainder.startsWith("after ")) {
+                        "remind me to wake up $remainder"
+                    } else {
+                        "remind me to wake up at $remainder"
+                    }
+                } else {
+                    "remind me to $remainder"
+                }
+                break
+            }
+        }
+
+        val effectiveLower = normalizedInput.lowercase(Locale.ENGLISH)
+        if (!effectiveLower.startsWith("remind") && !effectiveLower.startsWith("reminder")) {
             return null
         }
 
@@ -62,7 +116,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:every\\s+weekdays?|on\\s+weekdays?)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
             Pattern.CASE_INSENSITIVE
         )
-        val wdMatcher = weekdayPattern.matcher(cleanInput)
+        val wdMatcher = weekdayPattern.matcher(normalizedInput)
         if (wdMatcher.find()) {
             val task = wdMatcher.group(1)?.trim() ?: return null
             val timePart = wdMatcher.group(2)
@@ -84,7 +138,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:every\\s+|weekly\\s+on\\s+)([a-zA-Z]+)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
             Pattern.CASE_INSENSITIVE
         )
-        val wdDayMatcher = weeklyDayPattern.matcher(cleanInput)
+        val wdDayMatcher = weeklyDayPattern.matcher(normalizedInput)
         if (wdDayMatcher.find()) {
             val task = wdDayMatcher.group(1)?.trim() ?: return null
             val dayName = wdDayMatcher.group(2)?.lowercase(Locale.ENGLISH) ?: ""
@@ -113,7 +167,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:every\\s+day|daily)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
             Pattern.CASE_INSENSITIVE
         )
-        val dMatcher = dailyPattern.matcher(cleanInput)
+        val dMatcher = dailyPattern.matcher(normalizedInput)
         if (dMatcher.find()) {
             val task = dMatcher.group(1)?.trim() ?: return null
             val timePart = dMatcher.group(2)
@@ -133,7 +187,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+|set\\s+a\\s+reminder\\s+(?:to\\s+)?)(.+?)(?:\\s+at\\s+today|\\s+today)?(?:\\s+after|\\s+in)\\s+(\\d+)\\s*(minute|minutes|min|mins|hour|hours|hr|hrs|second|seconds|sec|secs)\\b",
             Pattern.CASE_INSENSITIVE
         )
-        val relMatcher = relativePattern.matcher(cleanInput)
+        val relMatcher = relativePattern.matcher(normalizedInput)
         if (relMatcher.find()) {
             val task = relMatcher.group(1)?.trim() ?: return null
             val amount = relMatcher.group(2)?.toLongOrNull() ?: return null
@@ -152,7 +206,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:on|for)\\s+([a-zA-Z]+|\\d{1,2})[\\s/\\-]+(\\d{1,2}|[a-zA-Z]+)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?\\b",
             Pattern.CASE_INSENSITIVE
         )
-        val dtMatcher = dateTimePattern.matcher(cleanInput)
+        val dtMatcher = dateTimePattern.matcher(normalizedInput)
         if (dtMatcher.find()) {
             val task = dtMatcher.group(1)?.trim() ?: return null
             val part1 = dtMatcher.group(2)?.lowercase(Locale.ENGLISH) ?: ""
@@ -193,7 +247,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:tomorrow|tmrw)(?:\\s+(?:at\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?",
             Pattern.CASE_INSENSITIVE
         )
-        val tmMatcher = tomorrowPattern.matcher(cleanInput)
+        val tmMatcher = tomorrowPattern.matcher(normalizedInput)
         if (tmMatcher.find()) {
             val task = tmMatcher.group(1)?.trim() ?: return null
             val timePart = tmMatcher.group(2)
@@ -211,7 +265,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+?)\\s+(?:(?:today\\s+at|at\\s+today|at)\\s+)(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\b",
             Pattern.CASE_INSENSITIVE
         )
-        val todayMatcher = todayPattern.matcher(cleanInput)
+        val todayMatcher = todayPattern.matcher(normalizedInput)
         if (todayMatcher.find()) {
             val task = todayMatcher.group(1)?.trim() ?: return null
             val timePart = todayMatcher.group(2)?.trim() ?: return null
@@ -219,7 +273,7 @@ object ReminderParser {
             if (parsedTime != null) {
                 var triggerDateTime = LocalDateTime.of(now.toLocalDate(), parsedTime)
                 if (triggerDateTime.isBefore(now)) {
-                    if (!lower.contains("today")) {
+                    if (!effectiveLower.contains("today")) {
                         triggerDateTime = triggerDateTime.plusDays(1)
                     }
                 }
@@ -232,7 +286,7 @@ object ReminderParser {
             "^(?:remind\\s+(?:me\\s+)?(?:to\\s+)?|reminder\\s+)(.+)$",
             Pattern.CASE_INSENSITIVE
         )
-        val genMatcher = genericPattern.matcher(cleanInput)
+        val genMatcher = genericPattern.matcher(normalizedInput)
         if (genMatcher.find()) {
             val task = genMatcher.group(1)?.trim() ?: return null
             return ParsedReminder(
